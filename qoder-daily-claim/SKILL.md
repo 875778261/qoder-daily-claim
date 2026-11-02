@@ -23,7 +23,7 @@ description: 自动领取 Qoder CN 权益中心「每天领 100 Credits」。读
 
 ## 运行
 
-以下命令在 skill 目录下执行。
+以下命令在 `qoder-daily-claim` 目录下执行。
 
 ```bash
 # 只查看活动状态，不领取
@@ -95,12 +95,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 
 ## 安装到全局 skill 目录
 
-把本 `skill/` 目录整体复制到 Qoder 的用户级 skill 目录，Windows 默认位置：
+把本 `qoder-daily-claim/` 目录整体复制到 Qoder 的用户级 skill 目录，Windows 默认位置：
 
 ```powershell
-$target = "$env:USERPROFILE\.qoder-cn\skills\qoder-daily-claim"
-New-Item -ItemType Directory -Force $target | Out-Null
-Copy-Item -Recurse -Force .\skill\* $target
+Copy-Item -Recurse -Force .\qoder-daily-claim "$env:USERPROFILE\.qoder-cn\skills\"
 ```
 
 Mac/Linux 默认位置为 `~/.qoder-cn/skills/qoder-daily-claim/`（脚本本身仅支持 Windows）。
