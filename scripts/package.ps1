@@ -22,7 +22,9 @@ $stageRoot = Join-Path ([IO.Path]::GetTempPath()) ("qoder-package-" + [guid]::Ne
 try {
   $stage = Join-Path $stageRoot $skillName
   New-Item -ItemType Directory -Force -Path $stage | Out-Null
-  Copy-Item -Path (Join-Path $source '*') -Destination $stage -Recurse -Force
+  Get-ChildItem -LiteralPath $source -Force |
+    Where-Object { $_.Name -ne 'checkin-logs' } |
+    Copy-Item -Destination $stage -Recurse -Force
 
   $license = Join-Path $Root 'LICENSE'
   if (Test-Path -LiteralPath $license) {

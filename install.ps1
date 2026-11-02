@@ -64,7 +64,9 @@ try {
     Remove-Item -LiteralPath $Target -Recurse -Force
   }
   New-Item -ItemType Directory -Force -Path $Target | Out-Null
-  Copy-Item -Path (Join-Path $source '*') -Destination $Target -Recurse -Force
+  Get-ChildItem -LiteralPath $source -Force |
+    Where-Object { $_.Name -ne 'checkin-logs' } |
+    Copy-Item -Destination $Target -Recurse -Force
 
   if (-not (Test-Path -LiteralPath (Join-Path $Target 'SKILL.md'))) {
     throw "安装失败：$Target 中缺少 SKILL.md"

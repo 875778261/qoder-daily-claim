@@ -10,6 +10,7 @@
 
 - 读取本机 Qoder CN 登录态，调用官方活动接口领取可领的 Credits
 - 幂等：重复调用返回 `replayed: true`，不会重复发放
+- 今日已领取检测：成功领取后在 skill 目录的 `checkin-logs/` 写入记录，同一天再次运行直接跳过
 - 自动筛选 `CLAIM_BENEFIT` + `CREDITS` + `CLAIMABLE` 且处于活动窗口内的活动
 - 领取后查询奖励状态复核 `amount` / `grantId`
 - 日志与最近一次运行状态本地留存，便于排障
@@ -94,6 +95,20 @@ node $script --data-dir "D:\path\to\qoder-data"
 # 或设置环境变量 QODER_DATA_DIR
 ```
 
+默认情况下，成功领取后会在 skill 目录的 `checkin-logs/` 写入当天记录（如 `2026-11-02.json`），同一天再次运行会直接跳过，不再请求接口。`--dry-run` 与 `--force` 会忽略本地记录：
+
+```powershell
+# 查看真实活动状态（忽略本地记录）
+node $script --dry-run
+
+# 强制重新检查 / 重放领取（忽略本地记录）
+node $script --force
+
+# 自定义记录目录
+node $script --checkin-dir "D:\path\to\checkin-logs"
+# 或设置环境变量 QODER_CHECKIN_DIR
+```
+
 退出码：
 
 | 退出码 | 含义 |
@@ -119,14 +134,15 @@ Start-ScheduledTask -TaskName QoderAutoCheckin
 schtasks /query /tn QoderAutoCheckin /v /fo LIST
 ```
 
-任务设置为 `StartWhenAvailable`：如果触发时电脑关机或休眠，开机后会补跑。
+任务设置为 `StartWhenAvailable`：如果触发时电脑关机或休眠，开机后会补跑。领取记录固定写入 skill 根目录下的 `checkin-logs/`，与计划任务的工作目录无关。
 
 ## 日志与状态
 
+- 领取记录：`<skill目录>/checkin-logs/YYYY-MM-DD.json`（活动日按北京时间 10:00 切换）
 - 日志：`%LOCALAPPDATA%\qoder-auto-checkin\logs\claim-YYYY-MM-DD.log`
 - 状态：`%LOCALAPPDATA%\qoder-auto-checkin\state.json`
 
-状态文件记录最近一次运行时间、账号、活动结果与 `grantId`，不包含令牌。
+状态文件记录最近一次运行时间、账号、活动结果与 `grantId`，不包含令牌。领取记录同样只包含账号、活动、金额与 `grantId`。
 
 ## 故障排查
 
@@ -136,7 +152,8 @@ schtasks /query /tn QoderAutoCheckin /v /fo LIST
 | 活动数量为 0 | 确认请求带 `Cosy-ClientType: 10`；确认账号是个人账号 |
 | 401/403 | 登录态失效，重新登录 Qoder CN |
 | `DPAPI 解密失败` | 计划任务与客户端不是同一 Windows 用户；用当前用户重新安装任务 |
-| 今天已经领过 | 正常。接口返回 `replayed: true`，无需处理 |
+| 今天已经领过 | 正常。有本地记录时直接跳过；无记录时接口返回 `replayed: true` |
+| 想重新检查或重领 | 加 `--force`，或删除 `checkin-logs/<活动日>.json` |
 | 10:05 未执行 | 检查电脑是否开机；`StartWhenAvailable` 会在开机后补跑 |
 | 找不到登录态 | 用 `--data-dir` 或环境变量 `QODER_DATA_DIR` 指向 Qoder CN 数据目录 |
 

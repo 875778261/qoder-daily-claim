@@ -44,6 +44,16 @@ node scripts/claim.js --force
 | 1 | 接口或网络错误 |
 | 2 | 登录态缺失/过期，需要重新登录 Qoder CN |
 
+### 今日已领取检测
+
+每次成功领取（含接口返回已领取）后，会在 skill 目录的 `checkin-logs/` 下写入一条当天记录，例如 `checkin-logs/2026-11-02.json`。同一天再次运行会直接跳过，不再读取登录态或请求接口。
+
+- 活动日按北京时间 10:00 切换：10:00 前仍视为前一天的轮次。
+- `--dry-run` 和 `--force` 会忽略本地记录，强制查询接口。
+- 记录目录可用 `--checkin-dir <目录>` 或环境变量 `QODER_CHECKIN_DIR` 修改。
+- 记录包含账号、活动、金额与 `grantId`，不包含令牌。
+- 想强制重新检查或重领时，运行 `node scripts/claim.js --force`，或删除当天的记录文件。
+
 ## 安装/更新定时任务
 
 默认每天 **10:05**（北京时间）运行，错开 10:00 的开放瞬间：
@@ -70,10 +80,11 @@ schtasks /run /tn QoderAutoCheckin
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Remove
 ```
 
-任务设置包含 `StartWhenAvailable`：如果 10:05 时电脑关机或休眠，开机后会补跑。
+任务设置包含 `StartWhenAvailable`：如果 10:05 时电脑关机或休眠，开机后会补跑。领取记录固定写入 skill 根目录下的 `checkin-logs/`，与计划任务的工作目录无关。
 
 ## 查看结果
 
+- 领取记录：`<skill目录>/checkin-logs/YYYY-MM-DD.json`（当天成功领取后生成，用于当天跳过判断）
 - 日志：`%LOCALAPPDATA%\qoder-auto-checkin\logs\claim-YYYY-MM-DD.log`
 - 状态：`%LOCALAPPDATA%\qoder-auto-checkin\state.json`（最近一次运行结果、活动、grantId）
 - 任务历史：`schtasks /query /tn QoderAutoCheckin /v /fo LIST`
@@ -86,7 +97,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 | 活动数量为 0 | 确认请求带 `Cosy-ClientType: 10`；确认账号是个人账号 |
 | 401/403 | 登录态失效，重新登录 Qoder CN |
 | `DPAPI 解密失败` | 计划任务与客户端不是同一 Windows 用户；用当前用户重新安装任务 |
-| 今天已经领过 | 正常。接口返回 `replayed: true`，无需处理 |
+| 今天已经领过 | 正常。有本地记录时直接跳过；无记录时接口返回 `replayed: true` |
+| 想重新检查或重领 | 加 `--force`，或删除 `checkin-logs/<活动日>.json` |
 | 10:05 未执行 | 检查电脑是否开机；任务设置为 `StartWhenAvailable` 会在开机后补跑 |
 
 ## 协议参考

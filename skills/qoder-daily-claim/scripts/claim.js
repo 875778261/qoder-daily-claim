@@ -44,13 +44,14 @@ function log(level, message, extra) {
 }
 
 function parseArgs(argv) {
-  const opts = { dryRun: false, force: false, verbose: false, dataDir: null, help: false };
+  const opts = { dryRun: false, force: false, verbose: false, dataDir: null, checkinDir: null, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--dry-run') opts.dryRun = true;
     else if (arg === '--force') opts.force = true;
     else if (arg === '--verbose') opts.verbose = true;
     else if (arg === '--data-dir') opts.dataDir = argv[++i];
+    else if (arg === '--checkin-dir') opts.checkinDir = argv[++i];
     else if (arg === '--help' || arg === '-h') opts.help = true;
     else throw new AppError(`未知参数：${arg}`, 1);
   }
@@ -64,10 +65,11 @@ function printHelp() {
   node claim.js [选项]
 
 选项：
-  --dry-run          只列出活动，不执行领取
-  --force            对已领取活动再次调用（接口幂等，用于验证）
+  --dry-run          只列出活动，不执行领取（忽略本地领取记录）
+  --force            忽略本地领取记录，对已领取活动再次调用（接口幂等）
   --verbose          输出调试信息
   --data-dir <目录>  指定 Qoder CN 数据目录（默认自动探测）
+  --checkin-dir <目录>  指定领取记录目录（默认 skill 目录下 checkin-logs）
   -h, --help         显示帮助
 
 退出码：
@@ -262,9 +264,62 @@ function writeState(state) {
   }
 }
 
+// 活动日按北京时间 10:00 切换，09:59 仍属于前一天的轮次。
+function activityDayKey(now = new Date()) {
+  const shifted = new Date(now.getTime() + 8 * 3600 * 1000);
+  const start = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()));
+  if (shifted.getUTCHours() < 10) start.setUTCDate(start.getUTCDate() - 1);
+  return start.toISOString().slice(0, 10);
+}
+
+function resolveCheckinDir(opts) {
+  if (opts.checkinDir) return path.resolve(opts.checkinDir);
+  if (process.env.QODER_CHECKIN_DIR) return path.resolve(process.env.QODER_CHECKIN_DIR);
+  // 计划任务的工作目录不可靠（通常是 system32），因此默认放在 skill 根目录。
+  return path.resolve(__dirname, '..', 'checkin-logs');
+}
+
+function readMarker(file) {
+  try {
+    const marker = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return marker?.ok === true ? marker : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMarker(file, data) {
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
+    return true;
+  } catch (error) {
+    log('WARN', `领取记录写入失败：${sanitizeError(error)}`);
+    return false;
+  }
+}
+
 async function claimAll(opts) {
+  const checkinDir = resolveCheckinDir(opts);
+  const dayKey = activityDayKey();
+  const markerFile = path.join(checkinDir, `${dayKey}.json`);
+
+  if (!opts.force && !opts.dryRun) {
+    const marker = readMarker(markerFile);
+    if (marker) {
+      log('INFO', `今日已成功领取，跳过执行（${dayKey}）`, {
+        file: markerFile,
+        account: marker.account,
+        amount: marker.amount,
+      });
+      return { skipped: true, marker };
+    }
+  }
+
   const dataDir = resolveDataDir(opts.dataDir);
-  log('INFO', '开始 Qoder 每日领取', { dataDir, dryRun: opts.dryRun, force: opts.force });
+  log('INFO', '开始 Qoder 每日领取', { dataDir, dryRun: opts.dryRun, force: opts.force, checkinDir });
 
   const auth = loadAuth(dataDir);
   assertTokenFresh(auth);
@@ -364,6 +419,28 @@ async function claimAll(opts) {
   }
 
   summary.ok = summary.errors.length === 0;
+  summary.checkinFile = markerFile;
+
+  const claimed = summary.campaigns.filter((item) =>
+    ['claimed', 'replayed', 'already-claimed'].includes(item.outcome)
+  );
+  if (!opts.dryRun && summary.ok && claimed.length > 0) {
+    const written = writeMarker(markerFile, {
+      date: dayKey,
+      checkedAt: summary.ranAt,
+      ok: true,
+      account,
+      amount: claimed.reduce((total, item) => total + Number(item.amount || 0), 0),
+      campaigns: claimed.map((item) => ({
+        campaignKey: item.campaignKey || null,
+        outcome: item.outcome,
+        amount: item.amount ?? null,
+        grantId: item.grantId || null,
+      })),
+    });
+    if (written) log('INFO', `已写入今日领取记录：${markerFile}`);
+  }
+
   writeState(summary);
   log(summary.ok ? 'INFO' : 'ERROR', `完成：${summary.ok ? 'success' : 'failed'}`, {
     campaigns: summary.campaigns.map((item) => `${item.campaignKey || 'none'}=${item.outcome}`),
