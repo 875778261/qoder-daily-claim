@@ -42,7 +42,7 @@ if ($nodeMajor -lt 18) {
 
 $tempRoot = $null
 try {
-  $source = if ($PSScriptRoot) { Join-Path $PSScriptRoot "skill\$SkillName" } else { $null }
+  $source = if ($PSScriptRoot) { Join-Path $PSScriptRoot "skills\$SkillName" } else { $null }
   if (-not $source -or -not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) {
     $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("qoder-skill-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
@@ -51,7 +51,7 @@ try {
     Write-Host "下载 skill：$url"
     Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
     Expand-Archive -LiteralPath $zip -DestinationPath $tempRoot -Force
-    $source = Join-Path $tempRoot "qoder-auto-checkin-$Branch\skill\$SkillName"
+    $source = Join-Path $tempRoot "qoder-auto-checkin-$Branch\skills\$SkillName"
   }
 
   if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) {

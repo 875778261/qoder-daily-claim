@@ -11,7 +11,7 @@ if (-not $OutputDir) {
 }
 
 $skillName = 'qoder-daily-claim'
-$source = Join-Path $Root "skill\$skillName"
+$source = Join-Path $Root "skills\$skillName"
 if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) {
   throw "未找到 skill 源目录：$source"
 }

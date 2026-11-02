@@ -65,7 +65,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $tmp
 ### 方式二：手动复制
 
 ```powershell
-Copy-Item -Recurse -Force .\skill\qoder-daily-claim "$env:USERPROFILE\.qoder-cn\skills\"
+Copy-Item -Recurse -Force .\skills\qoder-daily-claim "$env:USERPROFILE\.qoder-cn\skills\"
 ```
 
 ### 方式三：Release 压缩包
@@ -140,7 +140,7 @@ schtasks /query /tn QoderAutoCheckin /v /fo LIST
 | 10:05 未执行 | 检查电脑是否开机；`StartWhenAvailable` 会在开机后补跑 |
 | 找不到登录态 | 用 `--data-dir` 或环境变量 `QODER_DATA_DIR` 指向 Qoder CN 数据目录 |
 
-接口、请求头、登录态格式与活动筛选规则见 [skill/qoder-daily-claim/references/protocol.md](skill/qoder-daily-claim/references/protocol.md)。
+接口、请求头、登录态格式与活动筛选规则见 [skills/qoder-daily-claim/references/protocol.md](skills/qoder-daily-claim/references/protocol.md)。
 
 ## 打包与发布
 
@@ -170,7 +170,7 @@ git push origin v1.0.0
 ├── install.ps1                      # 一键安装 / 卸载
 ├── scripts/
 │   └── package.ps1                  # 打包脚本
-├── skill/
+├── skills/
 │   └── qoder-daily-claim/
 │       ├── SKILL.md                 # skill 定义
 │       ├── references/
