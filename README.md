@@ -1,4 +1,4 @@
-# qoder-auto-checkin
+# qoder-daily-claim
 
 自动领取 Qoder CN 权益中心「每天领 100 Credits」。
 
@@ -44,7 +44,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 
 ```powershell
 $tmp = Join-Path $env:TEMP 'qoder-install.ps1'
-irm https://raw.githubusercontent.com/875778261/qoder-auto-checkin/main/install.ps1 -OutFile $tmp
+irm https://raw.githubusercontent.com/875778261/qoder-daily-claim/main/install.ps1 -OutFile $tmp
 powershell -NoProfile -ExecutionPolicy Bypass -File $tmp
 ```
 
@@ -139,8 +139,8 @@ schtasks /query /tn QoderAutoCheckin /v /fo LIST
 ## 日志与状态
 
 - 领取记录：`<skill目录>/checkin-logs/YYYY-MM-DD.json`（活动日按北京时间 10:00 切换）
-- 日志：`%LOCALAPPDATA%\qoder-auto-checkin\logs\claim-YYYY-MM-DD.log`
-- 状态：`%LOCALAPPDATA%\qoder-auto-checkin\state.json`
+- 日志：`%LOCALAPPDATA%\qoder-daily-claim\logs\claim-YYYY-MM-DD.log`
+- 状态：`%LOCALAPPDATA%\qoder-daily-claim\state.json`
 
 状态文件记录最近一次运行时间、账号、活动结果与 `grantId`，不包含令牌。领取记录同样只包含账号、活动、金额与 `grantId`。
 

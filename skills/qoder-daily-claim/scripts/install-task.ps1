@@ -38,4 +38,4 @@ try {
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State | Format-List
 Write-Host "Installed: $TaskName, daily at $At, runs as the current Windows user."
 Write-Host "Run now:   schtasks /run /tn $TaskName"
-Write-Host "Logs:      $env:LOCALAPPDATA\qoder-auto-checkin\logs"
+Write-Host "Logs:      $env:LOCALAPPDATA\qoder-daily-claim\logs"

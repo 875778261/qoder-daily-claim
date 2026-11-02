@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$Repo = '875778261/qoder-auto-checkin'
+$Repo = '875778261/qoder-daily-claim'
 $Branch = 'main'
 $SkillName = 'qoder-daily-claim'
 $Target = Join-Path $env:USERPROFILE ".qoder-cn\skills\$SkillName"
@@ -51,7 +51,7 @@ try {
     Write-Host "下载 skill：$url"
     Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
     Expand-Archive -LiteralPath $zip -DestinationPath $tempRoot -Force
-    $source = Join-Path $tempRoot "qoder-auto-checkin-$Branch\skills\$SkillName"
+    $source = Join-Path $tempRoot "qoder-daily-claim-$Branch\skills\$SkillName"
   }
 
   if (-not (Test-Path -LiteralPath (Join-Path $source 'SKILL.md'))) {

@@ -9,7 +9,7 @@ const { execFileSync } = require('child_process');
 
 const BASE = 'https://openapi.qoder.com.cn';
 const CLIENT_TYPE = '10';
-const APP_DIR = path.join(process.env.LOCALAPPDATA || os.homedir(), 'qoder-auto-checkin');
+const APP_DIR = path.join(process.env.LOCALAPPDATA || os.homedir(), 'qoder-daily-claim');
 const LOG_DIR = process.env.QODER_CHECKIN_LOG_DIR || path.join(APP_DIR, 'logs');
 const STATE_FILE = path.join(APP_DIR, 'state.json');
 

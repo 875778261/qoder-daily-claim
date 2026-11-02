@@ -85,8 +85,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 ## 查看结果
 
 - 领取记录：`<skill目录>/checkin-logs/YYYY-MM-DD.json`（当天成功领取后生成，用于当天跳过判断）
-- 日志：`%LOCALAPPDATA%\qoder-auto-checkin\logs\claim-YYYY-MM-DD.log`
-- 状态：`%LOCALAPPDATA%\qoder-auto-checkin\state.json`（最近一次运行结果、活动、grantId）
+- 日志：`%LOCALAPPDATA%\qoder-daily-claim\logs\claim-YYYY-MM-DD.log`
+- 状态：`%LOCALAPPDATA%\qoder-daily-claim\state.json`（最近一次运行结果、活动、grantId）
 - 任务历史：`schtasks /query /tn QoderAutoCheckin /v /fo LIST`
 
 ## 故障排查
