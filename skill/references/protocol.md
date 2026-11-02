@@ -25,8 +25,10 @@ Accept: application/json
 Windows 上 Qoder CN 的数据目录通常为：
 
 ```text
-%APPDATA%\com.qodercn.app.stable  ->  D:\app-data\qoder_data
+%APPDATA%\com.qodercn.app.stable
 ```
+
+部分安装会把该目录重定向（软链接）到其他磁盘，脚本默认按 `realpath` 解析。若自动探测失败，可用 `--data-dir` 或环境变量 `QODER_DATA_DIR` 显式指定。
 
 关键文件：
 
@@ -39,10 +41,10 @@ Windows 上 Qoder CN 的数据目录通常为：
 {
   "schemaVersion": 1,
   "authenticationContext": "[\"https://qoder.cn\",\"https://openapi.qoder.com.cn\",\"<clientId>\",\"prod\"]",
-  "token": "dt-...",
-  "refreshToken": "drt-...",
-  "expiresAt": "2026-11-25T08:52:17Z",
-  "refreshTokenExpiresAt": "2027-...",
+  "token": "<accessToken>",
+  "refreshToken": "<refreshToken>",
+  "expiresAt": "<ISO 时间>",
+  "refreshTokenExpiresAt": "<ISO 时间>",
   "user": { "id": "...", "name": "...", "email": "", "phone": "", "avatarUrl": "..." }
 }
 ```
@@ -66,12 +68,12 @@ Windows 上 Qoder CN 的数据目录通常为：
 
 ```json
 {
-  "grantId": "01a199fd-...",
+  "grantId": "<grantId>",
   "status": "CLAIMED",
   "replayed": true,
   "benefit": { "kind": "CREDITS", "amount": 100, "validity": { "mode": "RELATIVE_DAYS", "days": 30 } },
-  "campaignId": "01a199da-...",
-  "campaignKey": "act-20261102-840"
+  "campaignId": "<campaignId>",
+  "campaignKey": "<campaignKey>"
 }
 ```
 

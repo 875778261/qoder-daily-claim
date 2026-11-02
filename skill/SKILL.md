@@ -23,6 +23,8 @@ description: 自动领取 Qoder CN 权益中心「每天领 100 Credits」。读
 
 ## 运行
 
+以下命令在 skill 目录下执行。
+
 ```bash
 # 只查看活动状态，不领取
 node scripts/claim.js --dry-run
@@ -91,12 +93,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 
 接口、请求头、登录态格式与活动筛选规则见 [references/protocol.md](references/protocol.md)。
 
-## 更新 skill
+## 安装到全局 skill 目录
 
-本仓库的 `skill/` 是源目录。修改后重新安装到全局：
+把本 `skill/` 目录整体复制到 Qoder 的用户级 skill 目录，Windows 默认位置：
 
-```bash
-cp -r /d/lhl_code/qoder-auto-checkin/skill/. "C:/Users/HUAWEI/.qoder-cn/skills/qoder-daily-claim/"
+```powershell
+$target = "$env:USERPROFILE\.qoder-cn\skills\qoder-daily-claim"
+New-Item -ItemType Directory -Force $target | Out-Null
+Copy-Item -Recurse -Force .\skill\* $target
 ```
 
-安装后无需重启已创建的计划任务（任务指向全局 skill 目录下的 `claim.js`）。
+Mac/Linux 默认位置为 `~/.qoder-cn/skills/qoder-daily-claim/`（脚本本身仅支持 Windows）。
+
+更新后无需重启已创建的计划任务——任务指向全局 skill 目录下的 `claim.js`；若全局目录换过位置，重新执行一次安装脚本即可。

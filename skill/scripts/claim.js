@@ -77,13 +77,31 @@ function printHelp() {
 `);
 }
 
+function scanForQoderDirs() {
+  const roots = [process.env.APPDATA, process.env.LOCALAPPDATA].filter(Boolean);
+  const found = [];
+  for (const root of roots) {
+    let entries;
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !/qoder/i.test(entry.name)) continue;
+      found.push(path.join(root, entry.name));
+    }
+  }
+  return found;
+}
+
 function resolveDataDir(explicit) {
   const candidates = [
     explicit,
     process.env.QODER_DATA_DIR,
     process.env.APPDATA && path.join(process.env.APPDATA, 'com.qodercn.app.stable'),
-    'D:\\app-data\\qoder_data',
     process.env.APPDATA && path.join(process.env.APPDATA, 'QoderCN'),
+    ...scanForQoderDirs(),
   ].filter(Boolean);
 
   for (const candidate of candidates) {
