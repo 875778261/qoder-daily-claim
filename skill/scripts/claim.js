@@ -1,0 +1,392 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const { execFileSync } = require('child_process');
+
+const BASE = 'https://openapi.qoder.com.cn';
+const CLIENT_TYPE = '10';
+const APP_DIR = path.join(process.env.LOCALAPPDATA || os.homedir(), 'qoder-auto-checkin');
+const LOG_DIR = process.env.QODER_CHECKIN_LOG_DIR || path.join(APP_DIR, 'logs');
+const STATE_FILE = path.join(APP_DIR, 'state.json');
+
+class AppError extends Error {
+  constructor(message, exitCode = 1) {
+    super(message);
+    this.exitCode = exitCode;
+  }
+}
+
+class ApiError extends Error {
+  constructor(status, body) {
+    super(`HTTP ${status}`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+function timestamp() {
+  return new Date().toISOString();
+}
+
+function log(level, message, extra) {
+  const line = `[${timestamp()}] [${level}] ${message}${extra ? ` ${JSON.stringify(extra)}` : ''}`;
+  console.log(line);
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.appendFileSync(path.join(LOG_DIR, `claim-${timestamp().slice(0, 10)}.log`), `${line}\n`);
+  } catch {
+    // Logging must never break a claim.
+  }
+}
+
+function parseArgs(argv) {
+  const opts = { dryRun: false, force: false, verbose: false, dataDir: null, help: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--dry-run') opts.dryRun = true;
+    else if (arg === '--force') opts.force = true;
+    else if (arg === '--verbose') opts.verbose = true;
+    else if (arg === '--data-dir') opts.dataDir = argv[++i];
+    else if (arg === '--help' || arg === '-h') opts.help = true;
+    else throw new AppError(`未知参数：${arg}`, 1);
+  }
+  return opts;
+}
+
+function printHelp() {
+  console.log(`Qoder CN 每日 Credits 自动领取
+
+用法：
+  node claim.js [选项]
+
+选项：
+  --dry-run          只列出活动，不执行领取
+  --force            对已领取活动再次调用（接口幂等，用于验证）
+  --verbose          输出调试信息
+  --data-dir <目录>  指定 Qoder CN 数据目录（默认自动探测）
+  -h, --help         显示帮助
+
+退出码：
+  0  成功（含今日已领或暂无可领）
+  1  接口或网络错误
+  2  登录态缺失/过期，需要重新登录 Qoder CN
+`);
+}
+
+function resolveDataDir(explicit) {
+  const candidates = [
+    explicit,
+    process.env.QODER_DATA_DIR,
+    process.env.APPDATA && path.join(process.env.APPDATA, 'com.qodercn.app.stable'),
+    'D:\\app-data\\qoder_data',
+    process.env.APPDATA && path.join(process.env.APPDATA, 'QoderCN'),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const dir = fs.realpathSync(candidate);
+      if (fs.existsSync(path.join(dir, 'auth.v1.dat'))) return dir;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  throw new AppError('未找到 Qoder CN 登录态（auth.v1.dat）。请先打开并登录 Qoder CN，或用 --data-dir 指定数据目录。', 2);
+}
+
+function unprotectWithDpapi(blob) {
+  const tmp = path.join(os.tmpdir(), `qoder-checkin-${process.pid}-${Date.now()}.b64`);
+  fs.writeFileSync(tmp, blob.toString('base64'), { mode: 0o600 });
+  const escaped = tmp.replace(/'/g, "''");
+  const ps = [
+    'Add-Type -AssemblyName System.Security;',
+    `$b=[Convert]::FromBase64String((Get-Content -Raw -LiteralPath '${escaped}'));`,
+    '$p=[System.Security.Cryptography.ProtectedData]::Unprotect($b,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser);',
+    "[BitConverter]::ToString($p).Replace('-','')",
+  ].join(' ');
+  try {
+    const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+    });
+    const key = Buffer.from(output.trim(), 'hex');
+    if (key.length !== 32) throw new AppError(`DPAPI 返回的密钥长度异常：${key.length}`, 2);
+    return key;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('无法用 DPAPI 解密 Qoder 登录态。请确认计划任务与 Qoder CN 使用同一个 Windows 用户运行。', 2);
+  } finally {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // Best effort cleanup.
+    }
+  }
+}
+
+function decryptAuth(raw, key) {
+  if (raw.subarray(0, 3).toString() !== 'v10') {
+    throw new AppError('不支持的登录态格式（期望 Chromium v10）。请升级客户端后重试。', 2);
+  }
+  const nonce = raw.subarray(3, 15);
+  const tag = raw.subarray(raw.length - 16);
+  const ciphertext = raw.subarray(15, raw.length - 16);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  try {
+    return JSON.parse(plain.toString('utf8'));
+  } finally {
+    plain.fill(0);
+  }
+}
+
+function loadAuth(dataDir) {
+  const localStatePath = path.join(dataDir, 'Local State');
+  if (!fs.existsSync(localStatePath)) {
+    throw new AppError(`未找到 ${localStatePath}，无法读取登录态。`, 2);
+  }
+  const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
+  const encodedKey = localState?.os_crypt?.encrypted_key;
+  if (!encodedKey) throw new AppError('Local State 中缺少 os_crypt.encrypted_key。', 2);
+
+  const encryptedKey = Buffer.from(encodedKey, 'base64');
+  if (encryptedKey.subarray(0, 5).toString() !== 'DPAPI') {
+    throw new AppError('登录态密钥不是 DPAPI 格式，当前平台不受支持。', 2);
+  }
+
+  const key = unprotectWithDpapi(encryptedKey.subarray(5));
+  try {
+    const raw = fs.readFileSync(path.join(dataDir, 'auth.v1.dat'));
+    const auth = decryptAuth(raw, key);
+    if (!auth?.token) throw new AppError('登录态中缺少 token，请在 Qoder CN 中重新登录。', 2);
+    return auth;
+  } finally {
+    key.fill(0);
+  }
+}
+
+function assertTokenFresh(auth) {
+  const expiresAt = Date.parse(auth.expiresAt);
+  if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+    throw new AppError(`登录态已过期（${auth.expiresAt}）。请打开 Qoder CN 客户端重新登录后再试。`, 2);
+  }
+}
+
+async function api(pathname, { token, method = 'GET' } = {}) {
+  const response = await fetch(`${BASE}${pathname}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Cosy-ClientType': CLIENT_TYPE,
+      Accept: 'application/json',
+    },
+  });
+  const text = await response.text();
+  let body = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+  }
+  if (!response.ok) throw new ApiError(response.status, body);
+  return body;
+}
+
+function campaignsOf(body) {
+  if (Array.isArray(body?.campaigns)) return body.campaigns;
+  if (Array.isArray(body?.data?.campaigns)) return body.data.campaigns;
+  if (Array.isArray(body?.data)) return body.data;
+  return [];
+}
+
+function isCreditsClaim(campaign) {
+  return campaign?.actionType === 'CLAIM_BENEFIT' && campaign?.benefit?.kind === 'CREDITS';
+}
+
+function timeState(campaign, now) {
+  if (typeof campaign.startAt === 'number' && campaign.startAt * 1000 > now) return 'not-started';
+  if (typeof campaign.endAt === 'number' && campaign.endAt * 1000 <= now) return 'ended';
+  return 'open';
+}
+
+function campaignSummary(campaign) {
+  return {
+    campaignKey: campaign.campaignKey,
+    campaignId: campaign.campaignId,
+    claimStatus: campaign.claimStatus,
+    amount: campaign.benefit?.amount ?? null,
+  };
+}
+
+function sanitizeError(error) {
+  if (error instanceof ApiError) {
+    const body = typeof error.body === 'string' ? error.body : JSON.stringify(error.body ?? '');
+    return `HTTP ${error.status}: ${body.slice(0, 300)}`;
+  }
+  return String(error?.message || error).slice(0, 300);
+}
+
+function writeState(state) {
+  try {
+    fs.mkdirSync(APP_DIR, { recursive: true });
+    const tmp = `${STATE_FILE}.tmp`;
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, STATE_FILE);
+  } catch (error) {
+    log('WARN', `状态文件写入失败：${sanitizeError(error)}`);
+  }
+}
+
+async function claimAll(opts) {
+  const dataDir = resolveDataDir(opts.dataDir);
+  log('INFO', '开始 Qoder 每日领取', { dataDir, dryRun: opts.dryRun, force: opts.force });
+
+  const auth = loadAuth(dataDir);
+  assertTokenFresh(auth);
+
+  const account = auth.user?.name || null;
+  log('INFO', `登录账号：${account || 'unknown'}`);
+
+  const body = await api('/sash/api/v1/me/campaigns', { token: auth.token });
+  const campaigns = campaignsOf(body);
+  log('INFO', `活动数量：${campaigns.length}`);
+
+  const now = Date.now();
+  const creditsCampaigns = campaigns.filter(isCreditsClaim);
+  const summary = {
+    ranAt: timestamp(),
+    ok: true,
+    dryRun: opts.dryRun,
+    account,
+    campaigns: [],
+    errors: [],
+  };
+
+  if (creditsCampaigns.length === 0) {
+    log('INFO', '当前没有 Credits 类活动');
+    summary.campaigns.push({ outcome: 'no-credits-campaign' });
+  }
+
+  for (const campaign of creditsCampaigns) {
+    const base = campaignSummary(campaign);
+    const label = campaign.campaignKey || campaign.campaignId;
+
+    if (campaign.claimStatus === 'CLAIMED' && !opts.force) {
+      summary.campaigns.push({ ...base, outcome: 'already-claimed' });
+      log('INFO', `已领取，跳过：${label}`, { status: campaign.claimStatus });
+      continue;
+    }
+
+    if (campaign.claimStatus !== 'CLAIMABLE' && !opts.force) {
+      summary.campaigns.push({ ...base, outcome: 'not-claimable' });
+      log('INFO', `不可领取：${label}`, { status: campaign.claimStatus });
+      continue;
+    }
+
+    const timeWindow = timeState(campaign, now);
+    if (timeWindow !== 'open' && !opts.force) {
+      summary.campaigns.push({ ...base, outcome: timeWindow });
+      log('INFO', `不在领取窗口：${label}`, { window: timeWindow });
+      continue;
+    }
+
+    if (opts.dryRun) {
+      summary.campaigns.push({ ...base, outcome: 'dry-run' });
+      log('INFO', `可领取（dry-run）：${label}`, { amount: base.amount });
+      continue;
+    }
+
+    try {
+      const result = await api(`/sash/api/v1/me/campaigns/${encodeURIComponent(campaign.campaignId)}/claim`, {
+        token: auth.token,
+        method: 'POST',
+      });
+      if (result?.status !== 'CLAIMED') {
+        throw new AppError(`领取返回状态异常：${result?.status ?? 'empty'}`, 1);
+      }
+      const outcome = result.replayed ? 'replayed' : 'claimed';
+      const item = {
+        ...base,
+        outcome,
+        replayed: Boolean(result.replayed),
+        grantId: result.grantId || null,
+        amount: result.benefit?.amount ?? base.amount,
+      };
+      summary.campaigns.push(item);
+      log('INFO', `${result.replayed ? '已领取过（幂等返回）' : '领取成功'}：${label}`, {
+        amount: item.amount,
+        grantId: item.grantId,
+      });
+
+      try {
+        const reward = await api(`/sash/api/v1/me/campaigns/${encodeURIComponent(campaign.campaignId)}/reward`, {
+          token: auth.token,
+        });
+        log('INFO', `奖励状态：${label}`, {
+          status: reward?.status,
+          amount: reward?.benefit?.amount,
+          grantId: reward?.grantId,
+        });
+      } catch (error) {
+        log('WARN', `奖励状态查询失败：${label}`, { error: sanitizeError(error) });
+      }
+    } catch (error) {
+      const message = sanitizeError(error);
+      summary.errors.push({ campaignKey: campaign.campaignKey, error: message });
+      summary.campaigns.push({ ...base, outcome: 'error', error: message });
+      log('ERROR', `领取失败：${label}`, { error: message });
+    }
+  }
+
+  summary.ok = summary.errors.length === 0;
+  writeState(summary);
+  log(summary.ok ? 'INFO' : 'ERROR', `完成：${summary.ok ? 'success' : 'failed'}`, {
+    campaigns: summary.campaigns.map((item) => `${item.campaignKey || 'none'}=${item.outcome}`),
+  });
+
+  if (!summary.ok) process.exitCode = 1;
+  return summary;
+}
+
+(async () => {
+  let opts;
+  try {
+    opts = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    log('ERROR', sanitizeError(error));
+    process.exitCode = error.exitCode || 1;
+    return;
+  }
+
+  if (opts.help) {
+    printHelp();
+    return;
+  }
+
+  if (process.platform !== 'win32') {
+    log('ERROR', '当前仅支持 Windows（依赖 DPAPI 解密客户端登录态）');
+    process.exitCode = 2;
+    return;
+  }
+
+  if (typeof fetch !== 'function') {
+    log('ERROR', '需要 Node.js 18 或更高版本（内置 fetch）');
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await claimAll(opts);
+  } catch (error) {
+    log('ERROR', sanitizeError(error));
+    writeState({ ranAt: timestamp(), ok: false, error: sanitizeError(error) });
+    process.exitCode = error.exitCode || 1;
+  }
+})();

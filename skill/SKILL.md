@@ -1,0 +1,102 @@
+---
+name: qoder-daily-claim
+description: 自动领取 Qoder CN 权益中心「每天领 100 Credits」。读取本机 Qoder CN 登录态，调用官方活动接口领取可领的 Credits，并可用 Windows 计划任务每天自动运行。当用户说 Qoder 自动签到、自动领取 Qoder 积分、领 100 Credits、Qoder 每日打卡、检查 Qoder 领取状态、安装/卸载 Qoder 签到任务时使用。
+---
+
+# Qoder 每日领取 100 Credits
+
+在 Windows 上自动完成 Qoder CN「权益中心」的每日 Credits 领取。
+
+## 安全边界
+
+- 只读本机 Qoder CN 的登录态文件，令牌只在运行时解密到内存，**绝不打印、绝不写入仓库、绝不上传**。
+- 只调用 Qoder 官方接口：活动列表、领取、奖励状态查询。
+- 领取接口是幂等的：重复调用返回 `replayed: true`，不会重复发积分。
+- 不主动刷新令牌。外部刷新会轮换令牌并可能导致桌面端掉线；令牌过期时让用户重新登录桌面端。
+- 仅适用于个人账号；企业订阅账号不参与该活动。
+
+## 前置条件
+
+1. Windows，且已安装并登录 Qoder CN 桌面端。
+2. Node.js 18+（需要内置 `fetch`）。
+3. 计划任务必须与 Qoder CN 使用同一个 Windows 用户运行，否则 DPAPI 无法解密登录态。
+
+## 运行
+
+```bash
+# 只查看活动状态，不领取
+node scripts/claim.js --dry-run
+
+# 领取今天可领的 Credits
+node scripts/claim.js
+
+# 对已领取活动再次调用，验证幂等（可选）
+node scripts/claim.js --force
+```
+
+退出码：
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | 成功：已领取、今日已领过、或暂无可领活动 |
+| 1 | 接口或网络错误 |
+| 2 | 登录态缺失/过期，需要重新登录 Qoder CN |
+
+## 安装/更新定时任务
+
+默认每天 **10:05**（北京时间）运行，错开 10:00 的开放瞬间：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1
+```
+
+自定义时间或任务名：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -At 10:10 -TaskName QoderAutoCheckin
+```
+
+立即运行一次：
+
+```powershell
+schtasks /run /tn QoderAutoCheckin
+```
+
+卸载：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Remove
+```
+
+任务设置包含 `StartWhenAvailable`：如果 10:05 时电脑关机或休眠，开机后会补跑。
+
+## 查看结果
+
+- 日志：`%LOCALAPPDATA%\qoder-auto-checkin\logs\claim-YYYY-MM-DD.log`
+- 状态：`%LOCALAPPDATA%\qoder-auto-checkin\state.json`（最近一次运行结果、活动、grantId）
+- 任务历史：`schtasks /query /tn QoderAutoCheckin /v /fo LIST`
+
+## 故障排查
+
+| 现象 | 处理 |
+| --- | --- |
+| 退出码 2 / 登录态已过期 | 打开 Qoder CN 客户端重新登录，再运行脚本 |
+| 活动数量为 0 | 确认请求带 `Cosy-ClientType: 10`；确认账号是个人账号 |
+| 401/403 | 登录态失效，重新登录 Qoder CN |
+| `DPAPI 解密失败` | 计划任务与客户端不是同一 Windows 用户；用当前用户重新安装任务 |
+| 今天已经领过 | 正常。接口返回 `replayed: true`，无需处理 |
+| 10:05 未执行 | 检查电脑是否开机；任务设置为 `StartWhenAvailable` 会在开机后补跑 |
+
+## 协议参考
+
+接口、请求头、登录态格式与活动筛选规则见 [references/protocol.md](references/protocol.md)。
+
+## 更新 skill
+
+本仓库的 `skill/` 是源目录。修改后重新安装到全局：
+
+```bash
+cp -r /d/lhl_code/qoder-auto-checkin/skill/. "C:/Users/HUAWEI/.qoder-cn/skills/qoder-daily-claim/"
+```
+
+安装后无需重启已创建的计划任务（任务指向全局 skill 目录下的 `claim.js`）。
