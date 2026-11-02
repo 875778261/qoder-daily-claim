@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$TaskName = 'QoderAutoCheckin',
   [string]$At = '10:05',
   [switch]$Remove

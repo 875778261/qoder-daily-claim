@@ -95,10 +95,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 
 ## 安装到全局 skill 目录
 
-把本 `qoder-daily-claim/` 目录整体复制到 Qoder 的用户级 skill 目录，Windows 默认位置：
+把本 `skill/qoder-daily-claim/` 目录整体复制到 Qoder 的用户级 skill 目录，Windows 默认位置：
 
 ```powershell
-Copy-Item -Recurse -Force .\qoder-daily-claim "$env:USERPROFILE\.qoder-cn\skills\"
+Copy-Item -Recurse -Force .\skill\qoder-daily-claim "$env:USERPROFILE\.qoder-cn\skills\"
+```
+
+也可以直接在仓库根目录运行一键安装脚本（支持 `-Uninstall` 卸载）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 Mac/Linux 默认位置为 `~/.qoder-cn/skills/qoder-daily-claim/`（脚本本身仅支持 Windows）。
