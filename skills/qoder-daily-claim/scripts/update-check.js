@@ -51,7 +51,7 @@ function updateMessage(latest, current) {
     `发现新版本 ${version}（当前 ${displayVersion(current)}）。`,
     '',
     '想更新时，复制下面这段发给 agent：',
-    `请把 ${SKILL_NAME} 更新到 ${latest}：从官方仓库 ${REPO_URL}/archive/refs/tags/${latest}.zip 下载，解压后在其根目录运行 powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1，覆盖安装到 $env:USERPROFILE\\.qoder-cn\\skills\\${SKILL_NAME} 并重建计划任务 QoderAutoCheckin，然后运行 node "$env:USERPROFILE\\.qoder-cn\\skills\\${SKILL_NAME}\\scripts\\claim.js" --dry-run，确认 VERSION 为 ${plainVersion}。`,
+    `请把 ${SKILL_NAME} 更新到 ${latest}：从官方仓库 ${REPO_URL}/archive/refs/tags/${latest}.zip 下载，解压后在其根目录运行 powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1；安装脚本会覆盖安装到全局 skill 目录并重建计划任务。完成后按安装脚本输出的目录确认 VERSION 为 ${plainVersion}，并用 node 运行该目录下的 scripts\\claim.js --dry-run 验证。`,
   ].join('\n');
 }
 

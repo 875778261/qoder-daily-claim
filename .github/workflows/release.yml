@@ -14,6 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify VERSION matches tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw -LiteralPath 'skills/qoder-daily-claim/VERSION').Trim()
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($version -ne $tag) {
+            throw "VERSION ($version) does not match tag ($tag). Update skills/qoder-daily-claim/VERSION before tagging."
+          }
+          Write-Host "VERSION $version matches tag $($env:GITHUB_REF_NAME)"
+
       - name: Package skill
         shell: pwsh
         run: ./scripts/package.ps1
