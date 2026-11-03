@@ -14,6 +14,7 @@
 - 自动筛选 `CLAIM_BENEFIT` + `CREDITS` + `CLAIMABLE` 且处于活动窗口内的活动
 - 领取后查询奖励状态复核 `amount` / `grantId`
 - 日志与最近一次运行状态本地留存，便于排障
+- 新版本提醒：每天最多检查一次 GitHub Release，发现新版本时提示更新
 - Windows 计划任务支持 `StartWhenAvailable`，错过时间会补跑
 
 ## 安全边界
@@ -149,6 +150,16 @@ schtasks /query /tn QoderAutoCheckin /v /fo LIST
 
 状态文件记录最近一次运行时间、账号、活动结果与 `grantId`，不包含令牌。领取记录同样只包含账号、活动、金额与 `grantId`。
 
+## 版本提醒
+
+每次运行后最多检查一次 GitHub Release（24 小时缓存，2 秒超时，失败静默），发现新版本时在结果下方提示：
+
+```text
+发现新版本 v1.2.0（当前 v1.1.1），更新方法：让 agent 根据 https://github.com/875778261/qoder-daily-claim v1.2.0 更新 qoder-daily-claim
+```
+
+只读 GitHub 公开接口，不发送账号或令牌。设置环境变量 `QODER_NO_UPDATE_CHECK=1` 可关闭检查；检查结果缓存在 `%LOCALAPPDATA%\qoder-daily-claim\update-check.json`。
+
 ## 故障排查
 
 | 现象 | 处理 |
@@ -178,6 +189,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1
 
 发布新版本：
 
+1. 更新 `skills/qoder-daily-claim/VERSION`
+2. 打 tag 并推送：
+
 ```powershell
 git tag v1.0.0
 git push origin v1.0.0
@@ -195,11 +209,13 @@ git push origin v1.0.0
 ├── skills/
 │   └── qoder-daily-claim/
 │       ├── SKILL.md                 # skill 定义
+│       ├── VERSION                  # 当前 skill 版本
 │       ├── references/
 │       │   └── protocol.md          # 接口与登录态说明
 │       └── scripts/
 │           ├── claim.js             # 领取逻辑
-│           └── install-task.ps1     # 计划任务安装 / 卸载
+│           ├── install-task.ps1     # 计划任务安装 / 卸载
+│           └── update-check.js      # GitHub Release 版本检查
 └── .github/workflows/release.yml    # tag 触发自动发布
 ```
 

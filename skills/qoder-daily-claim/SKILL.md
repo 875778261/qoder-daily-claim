@@ -95,6 +95,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 - 状态：`%LOCALAPPDATA%\qoder-daily-claim\state.json`（最近一次运行结果、活动、grantId）
 - 任务历史：`schtasks /query /tn QoderAutoCheckin /v /fo LIST`
 
+## 版本提醒
+
+每次运行后最多检查一次 GitHub Release（24 小时缓存，2 秒超时，失败静默）。发现新版本时，结果下方会提示：
+
+```text
+发现新版本 v1.2.0（当前 v1.1.1），更新方法：让 agent 根据 https://github.com/875778261/qoder-daily-claim v1.2.0 更新 qoder-daily-claim
+```
+
+只读公开接口，不发送账号或令牌。设置环境变量 `QODER_NO_UPDATE_CHECK=1` 可关闭。
+
 ## 故障排查
 
 | 现象 | 处理 |

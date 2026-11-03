@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { checkForUpdate } = require('./update-check');
 
 const BASE = 'https://openapi.qoder.com.cn';
 const CLIENT_TYPE = '10';
@@ -294,6 +295,14 @@ function printSummary(lines) {
   console.log('');
 }
 
+async function updateNotice() {
+  try {
+    return await checkForUpdate({ dataDir: APP_DIR });
+  } catch {
+    return null;
+  }
+}
+
 function shortReason(message) {
   const text = String(message || '').slice(0, 160);
   if (/HTTP (401|403)/.test(text)) return '登录状态已失效，请打开 Qoder CN 重新登录。';
@@ -415,12 +424,15 @@ async function claimAll(opts) {
         account: marker.account,
         amount: marker.amount,
       });
-      printSummary([
+      const lines = [
         '今天已经领过了，不需要重复领取。',
         `账号：${marker.account || '未知'}`,
         ...(marker.amount ? [`已领取：${marker.amount} Credits`] : []),
         ...(marker.checkedAt ? [`记录时间：${formatLocal(marker.checkedAt)}`] : []),
-      ]);
+      ];
+      const notice = await updateNotice();
+      printSummary(lines);
+      if (notice) console.log(`${notice}\n`);
       return { skipped: true, marker };
     }
   }
@@ -563,7 +575,9 @@ async function claimAll(opts) {
   }
 
   writeState(summary);
+  const notice = await updateNotice();
   printSummary(summarize(summary, opts));
+  if (notice) console.log(`${notice}\n`);
 
   if (!summary.ok) process.exitCode = 1;
   return summary;
