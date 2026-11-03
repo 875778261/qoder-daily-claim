@@ -29,3 +29,6 @@ Thumbs.db
 
 # Scratch
 .scratch/
+
+# Local session records
+docs/sessions/
