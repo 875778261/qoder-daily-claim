@@ -57,6 +57,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $tmp
 # 自定义任务名和运行时间（本地时间，建议避开 10:00 整点）
 .\install.ps1 -At 10:10 -TaskName QoderAutoCheckin
 
+# 计划任务静默运行，不保留控制台窗口（默认保留窗口）
+.\install.ps1 -NoWindow
+
 # 卸载 skill 和计划任务
 .\install.ps1 -Uninstall
 ```
@@ -135,6 +138,8 @@ schtasks /query /tn QoderAutoCheckin /v /fo LIST
 ```
 
 任务设置为 `StartWhenAvailable`：如果触发时电脑关机或休眠，开机后会补跑。领取记录固定写入 skill 根目录下的 `checkin-logs/`，与计划任务的工作目录无关。
+
+默认情况下，任务会在独立控制台窗口中运行，结束后窗口保留并显示退出码，按任意键关闭，便于确认当天是否已经执行。窗口内的退出码含义与手动运行一致；计划任务自身的“上次结果”只表示是否成功启动。若不需要窗口，安装时加 `-NoWindow`。
 
 ## 日志与状态
 

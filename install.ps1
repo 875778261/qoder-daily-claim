@@ -3,6 +3,7 @@ param(
   [bool]$InstallTask = $true,
   [string]$TaskName = 'QoderAutoCheckin',
   [string]$At = '10:05',
+  [switch]$NoWindow,
   [switch]$Uninstall
 )
 
@@ -75,7 +76,7 @@ try {
   Write-Host "已安装 skill：$Target"
 
   if ($InstallTask) {
-    & (Join-Path $Target 'scripts\install-task.ps1') -TaskName $TaskName -At $At
+    & (Join-Path $Target 'scripts\install-task.ps1') -TaskName $TaskName -At $At -NoWindow:$NoWindow
   } else {
     Write-Host "已跳过计划任务安装。"
   }
