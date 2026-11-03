@@ -32,12 +32,29 @@ function timestamp() {
   return new Date().toISOString();
 }
 
+function localDateKey(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+function localTimestamp(now = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${localDateKey(now)} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
+function formatLocal(iso) {
+  const date = new Date(iso);
+  return Number.isFinite(date.getTime()) ? localTimestamp(date) : String(iso);
+}
+
 function log(level, message, extra) {
-  const line = `[${timestamp()}] [${level}] ${message}${extra ? ` ${JSON.stringify(extra)}` : ''}`;
+  const label = { INFO: '信息', WARN: '警告', ERROR: '错误' }[level] || level;
+  const line = `[${localTimestamp()}] [${label}] ${message}`;
   console.log(line);
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
-    fs.appendFileSync(path.join(LOG_DIR, `claim-${timestamp().slice(0, 10)}.log`), `${line}\n`);
+    const detail = extra ? ` ${JSON.stringify(extra)}` : '';
+    fs.appendFileSync(path.join(LOG_DIR, `claim-${localDateKey()}.log`), `${line}${detail}\n`);
   } catch {
     // Logging must never break a claim.
   }
@@ -114,7 +131,7 @@ function resolveDataDir(explicit) {
       // Try the next candidate.
     }
   }
-  throw new AppError('未找到 Qoder CN 登录态（auth.v1.dat）。请先打开并登录 Qoder CN，或用 --data-dir 指定数据目录。', 2);
+  throw new AppError('没有找到 Qoder CN 的登录信息。请先打开并登录 Qoder CN 桌面端，然后再试一次。', 2);
 }
 
 function unprotectWithDpapi(blob) {
@@ -138,7 +155,7 @@ function unprotectWithDpapi(blob) {
     return key;
   } catch (error) {
     if (error instanceof AppError) throw error;
-    throw new AppError('无法用 DPAPI 解密 Qoder 登录态。请确认计划任务与 Qoder CN 使用同一个 Windows 用户运行。', 2);
+    throw new AppError('无法读取 Qoder CN 的登录信息。请确认当前 Windows 用户和 Qoder CN 的登录用户一致，或重新打开 Qoder CN 后再试。', 2);
   } finally {
     try {
       fs.rmSync(tmp, { force: true });
@@ -150,7 +167,7 @@ function unprotectWithDpapi(blob) {
 
 function decryptAuth(raw, key) {
   if (raw.subarray(0, 3).toString() !== 'v10') {
-    throw new AppError('不支持的登录态格式（期望 Chromium v10）。请升级客户端后重试。', 2);
+    throw new AppError('Qoder CN 的登录信息格式不受支持，请升级 Qoder CN 客户端后再试。', 2);
   }
   const nonce = raw.subarray(3, 15);
   const tag = raw.subarray(raw.length - 16);
@@ -168,22 +185,22 @@ function decryptAuth(raw, key) {
 function loadAuth(dataDir) {
   const localStatePath = path.join(dataDir, 'Local State');
   if (!fs.existsSync(localStatePath)) {
-    throw new AppError(`未找到 ${localStatePath}，无法读取登录态。`, 2);
+    throw new AppError('没有找到 Qoder CN 的登录信息，请先打开并登录 Qoder CN 桌面端。', 2);
   }
   const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
   const encodedKey = localState?.os_crypt?.encrypted_key;
-  if (!encodedKey) throw new AppError('Local State 中缺少 os_crypt.encrypted_key。', 2);
+  if (!encodedKey) throw new AppError('Qoder CN 的登录信息不完整，请重新登录 Qoder CN。', 2);
 
   const encryptedKey = Buffer.from(encodedKey, 'base64');
   if (encryptedKey.subarray(0, 5).toString() !== 'DPAPI') {
-    throw new AppError('登录态密钥不是 DPAPI 格式，当前平台不受支持。', 2);
+    throw new AppError('当前系统无法读取 Qoder CN 的登录信息。', 2);
   }
 
   const key = unprotectWithDpapi(encryptedKey.subarray(5));
   try {
     const raw = fs.readFileSync(path.join(dataDir, 'auth.v1.dat'));
     const auth = decryptAuth(raw, key);
-    if (!auth?.token) throw new AppError('登录态中缺少 token，请在 Qoder CN 中重新登录。', 2);
+    if (!auth?.token) throw new AppError('登录信息已失效，请打开 Qoder CN 重新登录。', 2);
     return auth;
   } finally {
     key.fill(0);
@@ -193,7 +210,7 @@ function loadAuth(dataDir) {
 function assertTokenFresh(auth) {
   const expiresAt = Date.parse(auth.expiresAt);
   if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
-    throw new AppError(`登录态已过期（${auth.expiresAt}）。请打开 Qoder CN 客户端重新登录后再试。`, 2);
+    throw new AppError('登录已过期，请打开 Qoder CN 重新登录后再试。', 2);
   }
 }
 
@@ -253,6 +270,90 @@ function sanitizeError(error) {
   return String(error?.message || error).slice(0, 300);
 }
 
+function friendlyError(error) {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) return '登录状态已失效，请打开 Qoder CN 重新登录。';
+    return `Qoder 服务暂时不可用（HTTP ${error.status}），请稍后重试。`;
+  }
+  return sanitizeError(error);
+}
+
+function statusText(status) {
+  return {
+    CLAIMED: '已经领取',
+    CLAIMABLE: '可以领取',
+  }[status] || '暂不可领取';
+}
+
+function printSummary(lines) {
+  const width = 52;
+  console.log('');
+  console.log('='.repeat(width));
+  for (const line of lines) console.log(line);
+  console.log('='.repeat(width));
+  console.log('');
+}
+
+function shortReason(message) {
+  const text = String(message || '').slice(0, 160);
+  if (/HTTP (401|403)/.test(text)) return '登录状态已失效，请打开 Qoder CN 重新登录。';
+  if (/^HTTP \d+/.test(text)) return 'Qoder 服务暂时不可用，请稍后重试。';
+  return text;
+}
+
+function summarize(summary, opts) {
+  const lines = [];
+  const total = (items) => items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const account = summary.account ? [`账号：${summary.account}`] : [];
+  const finished = (item) => ['claimed', 'replayed', 'already-claimed'].includes(item.outcome);
+
+  if (opts.dryRun) {
+    const claimable = summary.campaigns.filter((item) => item.outcome === 'dry-run');
+    const done = summary.campaigns.filter(finished);
+    if (claimable.length) {
+      lines.push('查询完成：今天还有 Credits 可以领取。');
+      lines.push(`可领取：${total(claimable)} Credits`);
+      lines.push('直接运行一次（不加 --dry-run）就会真正领取。');
+    } else if (done.length) {
+      lines.push('查询完成：今天的 Credits 已经领过了。');
+      lines.push(`已领取：${total(done)} Credits`);
+    } else {
+      lines.push('查询完成：今天暂时没有可领取的 Credits。');
+    }
+    return lines.concat(account);
+  }
+
+  if (!summary.ok) {
+    const done = summary.campaigns.filter(finished);
+    lines.push(done.length ? '部分活动已完成，但有活动领取失败。' : '这次领取没有完成。');
+    lines.push(...account);
+    for (const item of summary.errors.slice(0, 3)) {
+      lines.push(`原因：${shortReason(item.error)}`);
+    }
+    lines.push('建议：稍后重试；如果提示登录过期，请打开 Qoder CN 重新登录。');
+    return lines;
+  }
+
+  const claimed = summary.campaigns.filter((item) => item.outcome === 'claimed');
+  const replayed = summary.campaigns.filter((item) => item.outcome === 'replayed');
+  const already = summary.campaigns.filter((item) => item.outcome === 'already-claimed');
+
+  if (claimed.length) {
+    lines.push(`领取成功：今天 +${total(claimed)} Credits。`);
+    lines.push('Credits 已经到账，不需要再做其他操作。');
+  } else if (replayed.length || already.length) {
+    lines.push('今天已经领过了，本次没有重复发放。');
+    lines.push(`此前已到账：${total(replayed.concat(already))} Credits。`);
+  } else if (summary.campaigns.some((item) => item.outcome === 'no-credits-campaign')) {
+    lines.push('今天没有找到可领取的 Credits 活动。');
+    lines.push('可能活动还没开始或已经结束，晚些时候可以再试。');
+  } else {
+    lines.push('今天暂时没有可领取的 Credits。');
+    lines.push('可能还没到领取时间，或活动已经结束。');
+  }
+  return lines.concat(account);
+}
+
 function writeState(state) {
   try {
     fs.mkdirSync(APP_DIR, { recursive: true });
@@ -309,27 +410,38 @@ async function claimAll(opts) {
   if (!opts.force && !opts.dryRun) {
     const marker = readMarker(markerFile);
     if (marker) {
-      log('INFO', `今日已成功领取，跳过执行（${dayKey}）`, {
+      log('INFO', '今天已经领过，跳过本次执行', {
         file: markerFile,
         account: marker.account,
         amount: marker.amount,
       });
+      printSummary([
+        '今天已经领过了，不需要重复领取。',
+        `账号：${marker.account || '未知'}`,
+        ...(marker.amount ? [`已领取：${marker.amount} Credits`] : []),
+        ...(marker.checkedAt ? [`记录时间：${formatLocal(marker.checkedAt)}`] : []),
+      ]);
       return { skipped: true, marker };
     }
   }
 
   const dataDir = resolveDataDir(opts.dataDir);
-  log('INFO', '开始 Qoder 每日领取', { dataDir, dryRun: opts.dryRun, force: opts.force, checkinDir });
+  log('INFO', opts.dryRun ? '开始查询今天的 Qoder Credits（仅查询，不会领取）' : '开始检查今天的 Qoder Credits', {
+    dataDir,
+    dryRun: opts.dryRun,
+    force: opts.force,
+    checkinDir,
+  });
 
   const auth = loadAuth(dataDir);
   assertTokenFresh(auth);
 
   const account = auth.user?.name || null;
-  log('INFO', `登录账号：${account || 'unknown'}`);
+  log('INFO', `当前账号：${account || '未知'}`);
 
   const body = await api('/sash/api/v1/me/campaigns', { token: auth.token });
   const campaigns = campaignsOf(body);
-  log('INFO', `活动数量：${campaigns.length}`);
+  log('INFO', '正在检查今天的活动', { count: campaigns.length });
 
   const now = Date.now();
   const creditsCampaigns = campaigns.filter(isCreditsClaim);
@@ -343,7 +455,7 @@ async function claimAll(opts) {
   };
 
   if (creditsCampaigns.length === 0) {
-    log('INFO', '当前没有 Credits 类活动');
+    log('INFO', '今天没有可领取的 Credits 活动');
     summary.campaigns.push({ outcome: 'no-credits-campaign' });
   }
 
@@ -353,26 +465,26 @@ async function claimAll(opts) {
 
     if (campaign.claimStatus === 'CLAIMED' && !opts.force) {
       summary.campaigns.push({ ...base, outcome: 'already-claimed' });
-      log('INFO', `已领取，跳过：${label}`, { status: campaign.claimStatus });
+      log('INFO', '这个活动今天已经领过，跳过', { campaign: label, status: campaign.claimStatus });
       continue;
     }
 
     if (campaign.claimStatus !== 'CLAIMABLE' && !opts.force) {
       summary.campaigns.push({ ...base, outcome: 'not-claimable' });
-      log('INFO', `不可领取：${label}`, { status: campaign.claimStatus });
+      log('INFO', `这个活动暂时不能领取（${statusText(campaign.claimStatus)}）`, { campaign: label, status: campaign.claimStatus });
       continue;
     }
 
     const timeWindow = timeState(campaign, now);
     if (timeWindow !== 'open' && !opts.force) {
       summary.campaigns.push({ ...base, outcome: timeWindow });
-      log('INFO', `不在领取窗口：${label}`, { window: timeWindow });
+      log('INFO', timeWindow === 'not-started' ? '这个活动还没有开始' : '这个活动已经结束', { campaign: label, window: timeWindow });
       continue;
     }
 
     if (opts.dryRun) {
       summary.campaigns.push({ ...base, outcome: 'dry-run' });
-      log('INFO', `可领取（dry-run）：${label}`, { amount: base.amount });
+      log('INFO', `今天可以领取：${base.amount ?? '?'} Credits（仅查询，未领取）`, { campaign: label, amount: base.amount });
       continue;
     }
 
@@ -382,7 +494,7 @@ async function claimAll(opts) {
         method: 'POST',
       });
       if (result?.status !== 'CLAIMED') {
-        throw new AppError(`领取返回状态异常：${result?.status ?? 'empty'}`, 1);
+        throw new AppError('领取请求返回了意外的结果，请稍后重试。', 1);
       }
       const outcome = result.replayed ? 'replayed' : 'claimed';
       const item = {
@@ -393,28 +505,37 @@ async function claimAll(opts) {
         amount: result.benefit?.amount ?? base.amount,
       };
       summary.campaigns.push(item);
-      log('INFO', `${result.replayed ? '已领取过（幂等返回）' : '领取成功'}：${label}`, {
-        amount: item.amount,
-        grantId: item.grantId,
-      });
+      if (result.replayed) {
+        log('INFO', '这个活动之前已经领过，本次不会重复发放', {
+          campaign: label,
+          amount: item.amount,
+          grantId: item.grantId,
+        });
+      } else {
+        log('INFO', `领取成功：+${item.amount ?? ''} Credits`, {
+          campaign: label,
+          amount: item.amount,
+          grantId: item.grantId,
+        });
+      }
 
       try {
         const reward = await api(`/sash/api/v1/me/campaigns/${encodeURIComponent(campaign.campaignId)}/reward`, {
           token: auth.token,
         });
-        log('INFO', `奖励状态：${label}`, {
+        log('INFO', `已确认奖励到账：${reward?.benefit?.amount ?? item.amount ?? '?'} Credits`, {
+          campaign: label,
           status: reward?.status,
-          amount: reward?.benefit?.amount,
           grantId: reward?.grantId,
         });
       } catch (error) {
-        log('WARN', `奖励状态查询失败：${label}`, { error: sanitizeError(error) });
+        log('WARN', '领取已成功，但暂时无法确认奖励状态', { campaign: label, error: sanitizeError(error) });
       }
     } catch (error) {
       const message = sanitizeError(error);
       summary.errors.push({ campaignKey: campaign.campaignKey, error: message });
       summary.campaigns.push({ ...base, outcome: 'error', error: message });
-      log('ERROR', `领取失败：${label}`, { error: message });
+      log('ERROR', '这个活动领取失败', { campaign: label, error: message });
     }
   }
 
@@ -438,13 +559,11 @@ async function claimAll(opts) {
         grantId: item.grantId || null,
       })),
     });
-    if (written) log('INFO', `已写入今日领取记录：${markerFile}`);
+    if (written) log('INFO', '已保存今天的领取记录', { file: markerFile });
   }
 
   writeState(summary);
-  log(summary.ok ? 'INFO' : 'ERROR', `完成：${summary.ok ? 'success' : 'failed'}`, {
-    campaigns: summary.campaigns.map((item) => `${item.campaignKey || 'none'}=${item.outcome}`),
-  });
+  printSummary(summarize(summary, opts));
 
   if (!summary.ok) process.exitCode = 1;
   return summary;
@@ -466,13 +585,13 @@ async function claimAll(opts) {
   }
 
   if (process.platform !== 'win32') {
-    log('ERROR', '当前仅支持 Windows（依赖 DPAPI 解密客户端登录态）');
+    log('ERROR', '这个功能目前只支持 Windows。');
     process.exitCode = 2;
     return;
   }
 
   if (typeof fetch !== 'function') {
-    log('ERROR', '需要 Node.js 18 或更高版本（内置 fetch）');
+    log('ERROR', '需要 Node.js 18 或更高版本，请升级后再试。');
     process.exitCode = 1;
     return;
   }
@@ -480,8 +599,14 @@ async function claimAll(opts) {
   try {
     await claimAll(opts);
   } catch (error) {
-    log('ERROR', sanitizeError(error));
-    writeState({ ranAt: timestamp(), ok: false, error: sanitizeError(error) });
+    const message = friendlyError(error);
+    log('ERROR', message);
+    writeState({ ranAt: timestamp(), ok: false, error: message });
+    printSummary([
+      '这次没有完成领取。',
+      `原因：${message}`,
+      '建议：稍后重试；如果提示登录过期，请打开 Qoder CN 重新登录。',
+    ]);
     process.exitCode = error.exitCode || 1;
   }
 })();

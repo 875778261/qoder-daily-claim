@@ -7,14 +7,18 @@
 
 $ErrorActionPreference = 'Stop'
 
-$runner = Join-Path $env:LOCALAPPDATA 'qoder-daily-claim\run-visible.cmd'
+$runner = Join-Path $env:LOCALAPPDATA 'qoder-daily-claim\run-visible.ps1'
+$legacyRunner = Join-Path $env:LOCALAPPDATA 'qoder-daily-claim\run-visible.cmd'
 
 if ($Remove) {
   & schtasks.exe /delete /tn $TaskName /f
-  if (Test-Path -LiteralPath $runner) {
-    Remove-Item -LiteralPath $runner -Force
+  $code = $LASTEXITCODE
+  foreach ($file in @($runner, $legacyRunner)) {
+    if (Test-Path -LiteralPath $file) {
+      Remove-Item -LiteralPath $file -Force
+    }
   }
-  exit $LASTEXITCODE
+  exit $code
 }
 
 $node = (Get-Command node.exe -ErrorAction Stop).Source
@@ -24,26 +28,41 @@ if (-not (Test-Path -LiteralPath $script)) {
 }
 
 if (-not $NoWindow) {
-  # 计划任务直接运行 node 时窗口会一闪而过；这里用独立控制台窗口运行，
-  # 结束后停留并显示退出码，避免用户不知道是否执行过。
+  # .cmd 由 cmd 按控制台代码页解析，混入中文容易拆错行；
+  # 用 PowerShell 包装（UTF-8 BOM）既能安全显示中文，也能读取单个按键。
   $runnerDir = Split-Path -Parent $runner
   New-Item -ItemType Directory -Force -Path $runnerDir | Out-Null
+  $nodeQuoted = $node.Replace("'", "''")
+  $scriptQuoted = $script.Replace("'", "''")
+  $invoke = "& '$nodeQuoted' '$scriptQuoted' @args"
   $lines = @(
-    '@echo off',
-    'chcp 65001 >nul',
-    'title Qoder 每日领取',
-    ('"' + $node + '" "' + $script + '" %*'),
-    'set "CODE=%ERRORLEVEL%"',
-    'echo.',
-    'echo 退出码：%CODE%（0 成功，1 接口/网络错误，2 需要重新登录 Qoder CN）',
-    'echo 按任意键关闭窗口...',
-    'pause >nul',
-    'exit /b %CODE%'
+    '$Host.UI.RawUI.WindowTitle = ''Qoder 每日领取''',
+    'try {',
+    "  $invoke",
+    '  $code = $LASTEXITCODE',
+    '} catch {',
+    '  Write-Host "无法启动 node：$($_.Exception.Message)"',
+    '  $code = 1',
+    '}',
+    'Write-Host',
+    'Write-Host ''按 ESC 关闭窗口。''',
+    'while ($true) {',
+    '  $key = $Host.UI.RawUI.ReadKey(''NoEcho,IncludeKeyDown'')',
+    '  if ($key.VirtualKeyCode -eq 27) { exit $code }',
+    '}'
   )
   $content = ($lines -join "`r`n") + "`r`n"
-  [IO.File]::WriteAllText($runner, $content, (New-Object System.Text.UTF8Encoding($false)))
-  $taskAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c start "Qoder 每日领取" "' + $runner + '"')
+  [IO.File]::WriteAllText($runner, $content, (New-Object System.Text.UTF8Encoding($true)))
+  if (Test-Path -LiteralPath $legacyRunner) {
+    Remove-Item -LiteralPath $legacyRunner -Force
+  }
+  $taskAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c start "Qoder 每日领取" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $runner + '"')
 } else {
+  foreach ($file in @($runner, $legacyRunner)) {
+    if (Test-Path -LiteralPath $file) {
+      Remove-Item -LiteralPath $file -Force
+    }
+  }
   $taskAction = New-ScheduledTaskAction -Execute $node -Argument ('"' + $script + '"')
 }
 
@@ -64,7 +83,7 @@ try {
 Get-ScheduledTask -TaskName $TaskName | Select-Object TaskName, State | Format-List
 Write-Host "Installed: $TaskName, daily at $At, runs as the current Windows user."
 if (-not $NoWindow) {
-  Write-Host "Window:    stays open after the run, press any key to close (-NoWindow to disable)."
+  Write-Host "Window:    stays open after the run; press ESC to close (-NoWindow to disable)."
 } else {
   Write-Host "Window:    hidden (no console window kept open)."
 }

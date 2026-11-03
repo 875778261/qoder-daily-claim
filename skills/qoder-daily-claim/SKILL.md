@@ -62,7 +62,7 @@ node scripts/claim.js --force
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1
 ```
 
-任务会在独立控制台窗口中运行，结束后**保留窗口**并显示退出码，按任意键关闭，便于确认当天是否执行。若希望静默运行：
+任务会在独立控制台窗口中运行，结束后**保留窗口**，按 **ESC** 关闭窗口，便于确认当天是否执行。若希望静默运行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -NoWindow
