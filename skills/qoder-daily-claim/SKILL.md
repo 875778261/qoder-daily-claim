@@ -100,7 +100,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-task.ps1 -Re
 每次运行后最多检查一次 GitHub Release（24 小时缓存，2 秒超时，失败静默）。发现新版本时，结果下方会提示：
 
 ```text
-发现新版本 v1.2.0（当前 v1.1.1），更新方法：让 agent 根据 https://github.com/875778261/qoder-daily-claim v1.2.0 更新 qoder-daily-claim
+发现新版本 v1.2.0（当前 v1.1.1）。
+
+想更新时，复制下面这段发给 agent：
+请把 qoder-daily-claim 更新到 v1.2.0：从官方仓库 https://github.com/875778261/qoder-daily-claim/archive/refs/tags/v1.2.0.zip 下载，解压后在其根目录运行 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1，覆盖安装到 $env:USERPROFILE\.qoder-cn\skills\qoder-daily-claim 并重建计划任务 QoderAutoCheckin，然后运行 node "$env:USERPROFILE\.qoder-cn\skills\qoder-daily-claim\scripts\claim.js" --dry-run，确认 VERSION 为 1.2.0。
 ```
 
 只读公开接口，不发送账号或令牌。设置环境变量 `QODER_NO_UPDATE_CHECK=1` 可关闭。

@@ -45,7 +45,14 @@ function displayVersion(value) {
 }
 
 function updateMessage(latest, current) {
-  return `发现新版本 ${displayVersion(latest)}（当前 ${displayVersion(current)}），更新方法：让 agent 根据 ${REPO_URL} ${latest} 更新 ${SKILL_NAME}`;
+  const version = displayVersion(latest);
+  const plainVersion = String(latest).replace(/^v/i, '');
+  return [
+    `发现新版本 ${version}（当前 ${displayVersion(current)}）。`,
+    '',
+    '想更新时，复制下面这段发给 agent：',
+    `请把 ${SKILL_NAME} 更新到 ${latest}：从官方仓库 ${REPO_URL}/archive/refs/tags/${latest}.zip 下载，解压后在其根目录运行 powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1，覆盖安装到 $env:USERPROFILE\\.qoder-cn\\skills\\${SKILL_NAME} 并重建计划任务 QoderAutoCheckin，然后运行 node "$env:USERPROFILE\\.qoder-cn\\skills\\${SKILL_NAME}\\scripts\\claim.js" --dry-run，确认 VERSION 为 ${plainVersion}。`,
+  ].join('\n');
 }
 
 function readCache(file) {
